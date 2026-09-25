@@ -118,6 +118,8 @@ export interface SimulationMetrics {
   /** Progresso da estação atual (0 a 100%) */
   seasonProgress: number;
   totalTicks: number;
+  /** Quantidade atual de agentes dispersores ativos */
+  disperserCount?: number;
 }
 
 /**
@@ -129,4 +131,5 @@ export type BrushTool =
   | 'deforest'        // Desmatar (remover vegetação)
   | 'water_channel'   // Criar leito de água
   | 'dry_channel'     // Secar canal de água
+  | 'dry_soil'        // Colocar solo seco inerte
   | 'inspect';        // Apenas inspecionar célula

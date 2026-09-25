@@ -29,6 +29,7 @@ export default function Home() {
   const [running, setRunning] = useState<boolean>(true);
   const [speed, setSpeed] = useState<number>(12); // Frames por tick
   const [waterRadius, setWaterRadius] = useState<number>(2);
+  const [disperserCount, setDisperserCount] = useState<number>(10);
   const [activeBrush, setActiveBrush] = useState<BrushTool>('plant_tree');
   const [activePresetId, setActivePresetId] = useState<string>('balanced');
   const [stepTrigger, setStepTrigger] = useState<number>(0);
@@ -83,6 +84,10 @@ export default function Home() {
 
   const handleWaterRadiusChange = useCallback((newRadius: number) => {
     setWaterRadius(newRadius);
+  }, []);
+
+  const handleDisperserCountChange = useCallback((newCount: number) => {
+    setDisperserCount(newCount);
   }, []);
 
   const handleMetricsUpdate = useCallback((newMetrics: SimulationMetrics) => {
@@ -163,6 +168,7 @@ export default function Home() {
               activeBrush={activeBrush}
               framesPerTick={speed}
               waterRadius={waterRadius}
+              disperserCount={disperserCount}
               running={running}
               stepTrigger={stepTrigger}
               resetTrigger={resetTrigger}
@@ -304,6 +310,8 @@ export default function Home() {
           onSpeedChange={handleSpeedChange}
           waterRadius={waterRadius}
           onWaterRadiusChange={handleWaterRadiusChange}
+          disperserCount={disperserCount}
+          onDisperserCountChange={handleDisperserCountChange}
           activeBrush={activeBrush}
           onSelectBrush={setActiveBrush}
           activePresetId={activePresetId}

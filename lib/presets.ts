@@ -145,6 +145,14 @@ export function createRestorationPreset(): Grid {
   return grid;
 }
 
+/**
+ * Preset D — Solo Seco Inerte:
+ * Mapa árido preenchido exclusivamente com solo seco inerte, sem água ou vegetação inicial.
+ */
+export function createDrySoilPreset(): Grid {
+  return createBaseGrid();
+}
+
 export const PRESETS: Record<string, PresetScenario> = {
   balanced: {
     id: 'balanced',
@@ -169,5 +177,13 @@ export const PRESETS: Record<string, PresetScenario> = {
     description: 'Remanescentes florestais e corredores em restauração por polinizadores.',
     initialSeason: ClimateSeason.CHUVOSA,
     createGrid: createRestorationPreset,
+  },
+  dry_soil: {
+    id: 'dry_soil',
+    name: 'Solo Seco Inerte',
+    badge: 'Árido',
+    description: 'Terreno 100% árido e inerte, sem água ou vegetação. Ideal para construir do zero.',
+    initialSeason: ClimateSeason.SECA,
+    createGrid: createDrySoilPreset,
   },
 };

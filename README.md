@@ -7,6 +7,17 @@ A simulação demonstra como o dossel florestal ripário projeta sombra e microc
 
 ---
 
+## Como rodar o projeto:
+- **Passo 1**: Iniciar o Servidor de Desenvolvimento
+No terminal, dentro da pasta do projeto, execute:
+
+npm run dev
+
+- **Passo 2**: Acessar no Navegador
+Abra seu navegador e acesse:
+
+http://localhost:3000
+
 ## Como funciona?
 - **Leito de Água e Difusão Hídrica**: O rio emite um raio hídrico ($R_{\text{água}}$ na métrica Chebyshev) que transforma o solo árido ao redor em solo fértil úmido.
 - **Mata Ciliar como Escudo Térmico**: Na estação de seca, trechos de rio com $\ge 3$ árvores adultas vizinhas têm **0% de evaporação** (leito preservado). Sem árvores, o rio evapora rapidamente e se transforma em leito seco assoreado.
