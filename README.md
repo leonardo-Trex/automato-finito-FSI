@@ -1,27 +1,39 @@
-# Plantae Evolution 🌱
+# Plantae Evolution 🌱 — Bacia Hidrográfica, Mata Ciliar & Estações
 
 ## Objetivo
-Este projeto consiste em um autômato celular que simulará a evolução e disseminação de plantas pelo planeta, permitindo ao usuário observar o crescimento, a reprodução via agentes polinizadores e o impacto ambiental da vegetação no combate ao aquecimento global.
+Simulador de autômato celular ecológico que modela a dinâmica de uma **Bacia Hidrográfica protegida por Mata Ciliar**, com **Dispersão de Sementes por Polinizadores** e **Sazonalidade Climática Global (Ciclo de Estações: Cheia vs Estiagem)**.
+
+A simulação demonstra como o dossel florestal ripário projeta sombra e microclima estável, blindando o leito do rio contra a evaporação e o dessecamento durante a estiagem, enquanto polinizadores e dispersores regeneram as margens férteis.
 
 ---
 
 ## Como funciona?
-- Escolha um quadrado da matriz para plantar uma semente
-- Acompanhe o crescimento dela até a fase madura
-- Veja os agentes polinizadores disseminarem a espécie por toda a matriz
-- Visualize o impacto da geração de O2 e captura de CO2 para o combate ao aquecimento global
+- **Leito de Água e Difusão Hídrica**: O rio emite um raio hídrico ($R_{\text{água}}$ na métrica Chebyshev) que transforma o solo árido ao redor em solo fértil úmido.
+- **Mata Ciliar como Escudo Térmico**: Na estação de seca, trechos de rio com $\ge 3$ árvores adultas vizinhas têm **0% de evaporação** (leito preservado). Sem árvores, o rio evapora rapidamente e se transforma em leito seco assoreado.
+- **Germinação Seletiva**: Sementes que caem no solo fértil da margem germinam em brotos e amadurecem em árvores adultas. Sementes que caem no solo seco perecem após 15 ciclos.
+- **Polinizadores e Dispersores**: Agentes móveis colhem sementes nas árvores e as dispersam continuamente pelo mapa.
+- **Sazonalidade Climática**: Ciclo alternado entre **Estação Chuvosa (Cheia)** — com expansão hídrica e regeneração de leitos secos — e **Estação Seca (Estiagem)**.
 
 ---
 
-## Interação do usuário
+## Interação do Usuário e Ferramentas de Pincel
 
-O projeto contará com uma interface para que o usuário interaja com a simulação:
+O usuário dispõe de um conjunto completo de ferramentas interativas para experimentar com o ecossistema:
 
-- **Seleção de espécie**: o usuário pode escolher entre 1 a 3 tipos de plantas antes de plantar uma semente
-- **Plantio**: clique em uma célula da matriz para plantar a semente da espécie selecionada
-- **Controle de velocidade**: um controle (slider) permite acelerar ou desacelerar a simulação, afetando a velocidade de crescimento e disseminação
-- **Reiniciar**: botão que reseta a simulação por completo — grid, impacto acumulado e configuração voltam ao estado padrão
-- **Finalizar**: botão que pede confirmação ao usuário antes de encerrar a simulação e gerar a imagem de resultado (ver seção "Export de finalização")
+- **Pincéis Interativos (Desenho com mouse ou toque)**:
+  - 🌳 **Árvore**: Plantar mata ciliar madura diretamente na margem
+  - 🌱 **Semente**: Semeadura manual
+  - 🪓 **Desmatar**: Remover árvores/vegetação e observar o efeito térmico
+  - 💧 **Canal de Água**: Escavar ou expandir leitos de rio ativos
+  - 🏜️ **Secar Canal**: Simular dessecamento ou desvio de leito
+  - 🔍 **Inspecionar**: Consultar dados de microclima e número de árvores vizinhas
+- **Controle de Playback**: Iniciar, Pausar e Avançar Passo Único (tick a tick)
+- **Slider de Velocidade**: Ajuste de cadência de ticks por segundo
+- **Slider de Raio Hídrico ($R_{\text{água}}$)**: Controla a profundidade de penetração da umidade nas margens
+- **Cenários Predefinidos (Presets)**:
+  - 🏞️ **Mata Nativa Equilibrada**: Rio protegido por mata ciliar contínua que suporta a seca sem evaporar.
+  - 🏜️ **Bacia Degradada**: Margens desmatadas que secam e colapsam na estiagem.
+  - 🌿 **Restauração Ecológica**: Corredor em regeneração por dispersores bióticos.
 
 ---
 

@@ -5,7 +5,6 @@ import {
   advanceWindAgent,
   getWindGridCoord,
   DEFAULT_WIND_AGENT_COUNT,
-  WIND_BASE_SPEED,
   WIND_MARGIN,
   WIND_MAX_ANGLE,
 } from '@/lib/wind';

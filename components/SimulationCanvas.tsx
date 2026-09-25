@@ -1,88 +1,468 @@
 'use client';
 
 /**
- * SimulationCanvas — Componente React que hospeda o canvas p5.js.
+ * SimulationCanvas — Renderizador Canvas 2D de Alto Desempenho
  *
- * Carrega o p5.js via dynamic import no useEffect para evitar falhas
- * de SSR/hidratação (p5 depende de `window` e `document`).
+ * Executa o loop gráfico desacoplado via requestAnimationFrame com:
+ * 1. Renderização a ~60 FPS via Canvas 2D com a paleta canônica do TASK.md.
+ * 2. Animação de água, dossel das árvores e partículas aladas dos dispersores.
+ * 3. Suporte completo a mouse e toque (clique e arrasto contínuo com pincéis).
+ * 4. Sincronização throttled de métricas com a árvore React.
  *
- * Conecta o motor gráfico desacoplado (lib/sketch.ts) com a árvore React
- * via callback onCellClick mantido em ref estável.
+ * Referência: TASK.md § Fase 3 (SimulationCanvas.tsx)
  */
 
-import { useEffect, useRef } from 'react';
-import type p5 from 'p5';
-import type { Cell, GridCoord } from '@/types/simulation';
+import { useEffect, useRef, useCallback } from 'react';
+import { SimulationEngine, countNeighboringAdultTrees } from '@/lib/engine';
+import {
+  Cell,
+  CellState,
+  GridCoord,
+  SimulationMetrics,
+  BrushTool,
+} from '@/lib/types';
+import {
+  CANVAS_WIDTH,
+  CANVAS_HEIGHT,
+  CELL_SIZE,
+  GRID_COLS,
+  GRID_ROWS,
+  CELL_COLORS,
+  AGENT_COLOR,
+  AGENT_SEED_COLOR,
+} from '@/lib/constants';
+import { mouseToGridCoord, isCoordValid } from '@/lib/utils';
+import { PRESETS } from '@/lib/presets';
 
 export interface SimulationCanvasProps {
-  /** Callback disparado ao clicar em uma célula do grid */
-  onCellClick?: (coord: GridCoord, cell: Cell) => void;
-  /** Quantidade de frames p5 entre cada tick lógico (padrão: 15) */
-  framesPerTick?: number;
-  /** Quantidade de agentes Vento instanciados na simulação (padrão: 3) */
-  windAgentCount?: number;
+  activePresetId: string;
+  activeBrush: BrushTool;
+  framesPerTick: number;
+  waterRadius: number;
+  running: boolean;
+  stepTrigger: number;
+  resetTrigger: number;
+  onMetricsUpdate?: (metrics: SimulationMetrics) => void;
+  onCellHover?: (coord: GridCoord | null, cell: Cell | null, neighborTrees: number) => void;
   className?: string;
 }
 
 export default function SimulationCanvas({
-  onCellClick,
+  activePresetId,
+  activeBrush,
   framesPerTick,
-  windAgentCount,
+  waterRadius,
+  running,
+  stepTrigger,
+  resetTrigger,
+  onMetricsUpdate,
+  onCellHover,
   className,
 }: SimulationCanvasProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const onCellClickRef = useRef(onCellClick);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Instância do motor mantida internamente na ref do Canvas
+  const engineRef = useRef<SimulationEngine | null>(null);
+
+  // Inicializa engine na montagem ou via ref
+  const getEngine = useCallback(() => {
+    if (!engineRef.current) {
+      const preset = PRESETS[activePresetId] ?? PRESETS.balanced;
+      engineRef.current = new SimulationEngine(preset.createGrid(), {
+        waterRadius,
+        framesPerTick,
+      });
+      engineRef.current.season = preset.initialSeason;
+    }
+    return engineRef.current;
+  }, [activePresetId, waterRadius, framesPerTick]);
+
+  // Referências sincronizadas para o loop de requestAnimationFrame
+  const activeBrushRef = useRef(activeBrush);
   const framesPerTickRef = useRef(framesPerTick);
+  const runningRef = useRef(running);
+  const onMetricsUpdateRef = useRef(onMetricsUpdate);
+  const onCellHoverRef = useRef(onCellHover);
+
+  // Estado de interação do cursor
+  const isMouseDownRef = useRef(false);
+  const hoverCoordRef = useRef<GridCoord | null>(null);
 
   useEffect(() => {
-    onCellClickRef.current = onCellClick;
-  }, [onCellClick]);
+    activeBrushRef.current = activeBrush;
+  }, [activeBrush]);
 
   useEffect(() => {
     framesPerTickRef.current = framesPerTick;
+    const eng = engineRef.current;
+    if (eng) {
+      eng.setSpeed(framesPerTick);
+    }
   }, [framesPerTick]);
 
   useEffect(() => {
-    let cancelled = false;
-    let p5Instance: p5 | null = null;
-
-    async function init() {
-      // Dynamic imports — apenas no browser
-      const [{ default: P5 }, { createSketch }] = await Promise.all([
-        import('p5'),
-        import('@/lib/sketch'),
-      ]);
-
-      if (cancelled || !containerRef.current) return;
-
-      // Cria a instância do p5 dentro do elemento container
-      p5Instance = new P5(
-        createSketch({
-          onCellClick: (coord, cell) => {
-            onCellClickRef.current?.(coord, cell);
-          },
-          getFramesPerTick: () => framesPerTickRef.current ?? 15,
-          windAgentCount,
-        }),
-        containerRef.current,
-      );
+    const eng = engineRef.current;
+    if (eng) {
+      eng.setWaterRadius(waterRadius);
+      onMetricsUpdateRef.current?.(eng.getMetrics());
     }
+  }, [waterRadius]);
 
-    init();
+  useEffect(() => {
+    runningRef.current = running;
+    const eng = engineRef.current;
+    if (eng) {
+      eng.running = running;
+    }
+  }, [running]);
 
-    return () => {
-      cancelled = true;
-      if (p5Instance) {
-        p5Instance.remove();
-        p5Instance = null;
-      }
-    };
+  useEffect(() => {
+    onMetricsUpdateRef.current = onMetricsUpdate;
+  }, [onMetricsUpdate]);
+
+  useEffect(() => {
+    onCellHoverRef.current = onCellHover;
+  }, [onCellHover]);
+
+  // Carrega Preset quando activePresetId ou resetTrigger mudar
+  useEffect(() => {
+    const eng = getEngine();
+    const preset = PRESETS[activePresetId] ?? PRESETS.balanced;
+    eng.loadGrid(preset.createGrid(), preset.initialSeason);
+    onMetricsUpdateRef.current?.(eng.getMetrics());
+  }, [activePresetId, resetTrigger, getEngine]);
+
+  // Passo único manual
+  useEffect(() => {
+    if (stepTrigger === 0) return;
+    const eng = engineRef.current;
+    if (eng) {
+      eng.step();
+      onMetricsUpdateRef.current?.(eng.getMetrics());
+    }
+  }, [stepTrigger]);
+
+  // Aplica ferramenta de pincel sob o ponto de toque/clique
+  const applyBrushAtPoint = useCallback((clientX: number, clientY: number) => {
+    const canvas = canvasRef.current;
+    const eng = engineRef.current;
+    if (!canvas || !eng) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const canvasX = (clientX - rect.left) * scaleX;
+    const canvasY = (clientY - rect.top) * scaleY;
+
+    const coord = mouseToGridCoord(canvasX, canvasY, GRID_COLS, GRID_ROWS, CELL_SIZE);
+    if (!coord) return;
+
+    eng.applyBrush(coord, activeBrushRef.current);
+
+    const cell = eng.grid[coord.row]?.[coord.col] ?? null;
+    const neighborTrees = countNeighboringAdultTrees(eng.grid, coord);
+    onCellHoverRef.current?.(coord, cell, neighborTrees);
   }, []);
 
+  // Loop Principal de Renderização e Animação (requestAnimationFrame)
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d', { alpha: false });
+    if (!ctx) return;
+
+    let animationFrameId: number;
+    let frameAccumulator = 0;
+    let visualFrameCount = 0;
+    let lastMetricsSync = 0;
+
+    const render = () => {
+      visualFrameCount++;
+      const eng = engineRef.current;
+      if (!eng) {
+        animationFrameId = requestAnimationFrame(render);
+        return;
+      }
+
+      const isRunning = runningRef.current;
+      const targetFramesPerTick = framesPerTickRef.current || 12;
+
+      // 1. Processamento de Ticks Lógicos da Simulação
+      if (isRunning) {
+        frameAccumulator++;
+        if (frameAccumulator >= targetFramesPerTick) {
+          eng.step();
+          frameAccumulator = 0;
+        }
+
+        // Movimentação fluida contínua dos dispersores a 60 FPS
+        eng.updateDispersersMotion();
+      }
+
+      // Sincronização throttled de métricas com o React (~4x por segundo)
+      if (visualFrameCount - lastMetricsSync >= 15) {
+        lastMetricsSync = visualFrameCount;
+        onMetricsUpdateRef.current?.(eng.getMetrics());
+      }
+
+      // 2. Renderização Gráfica do Grid Celular
+      ctx.fillStyle = '#0B130E';
+      ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+      const rows = eng.grid.length;
+      const cols = eng.grid[0]?.length ?? 0;
+
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const cell = eng.grid[r][c];
+          const x = c * CELL_SIZE;
+          const y = r * CELL_SIZE;
+
+          ctx.fillStyle = CELL_COLORS[cell.state] || '#151E17';
+          ctx.fillRect(x, y, CELL_SIZE, CELL_SIZE);
+
+          switch (cell.state) {
+            case CellState.LEITO_AGUA: {
+              const wave = Math.sin(visualFrameCount * 0.08 + (c + r) * 0.6) * 1.5;
+              ctx.fillStyle = 'rgba(147, 197, 253, 0.28)';
+              ctx.fillRect(x + 2, y + 4 + wave, CELL_SIZE - 4, 3);
+              ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+              ctx.fillRect(x + 6, y + 10 - wave, CELL_SIZE - 12, 2);
+              break;
+            }
+
+            case CellState.LEITO_SECO: {
+              ctx.strokeStyle = '#64748B';
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              ctx.moveTo(x + 4, y + 5);
+              ctx.lineTo(x + 10, y + 14);
+              ctx.lineTo(x + 16, y + 8);
+              ctx.stroke();
+              break;
+            }
+
+            case CellState.SEMENTE: {
+              ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+              ctx.beginPath();
+              ctx.arc(x + CELL_SIZE / 2 + 1, y + CELL_SIZE / 2 + 1, 3.5, 0, Math.PI * 2);
+              ctx.fill();
+
+              ctx.fillStyle = '#F59E0B';
+              ctx.beginPath();
+              ctx.arc(x + CELL_SIZE / 2, y + CELL_SIZE / 2, 3.5, 0, Math.PI * 2);
+              ctx.fill();
+
+              ctx.fillStyle = '#FEF3C7';
+              ctx.beginPath();
+              ctx.arc(x + CELL_SIZE / 2 - 1, y + CELL_SIZE / 2 - 1, 1.2, 0, Math.PI * 2);
+              ctx.fill();
+              break;
+            }
+
+            case CellState.BROTO: {
+              ctx.strokeStyle = '#15803D';
+              ctx.lineWidth = 1.8;
+              ctx.beginPath();
+              ctx.moveTo(x + CELL_SIZE / 2, y + CELL_SIZE - 3);
+              ctx.lineTo(x + CELL_SIZE / 2, y + 6);
+              ctx.stroke();
+
+              ctx.fillStyle = '#86EFAC';
+              ctx.beginPath();
+              ctx.ellipse(x + CELL_SIZE / 2 - 3, y + 8, 3.5, 2, -Math.PI / 4, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.beginPath();
+              ctx.ellipse(x + CELL_SIZE / 2 + 3, y + 8, 3.5, 2, Math.PI / 4, 0, Math.PI * 2);
+              ctx.fill();
+              break;
+            }
+
+            case CellState.ARVORE_ADULTA: {
+              ctx.fillStyle = '#451A03';
+              ctx.fillRect(x + CELL_SIZE / 2 - 1.5, y + CELL_SIZE / 2, 3, CELL_SIZE / 2 - 1);
+
+              ctx.fillStyle = '#166534';
+              ctx.beginPath();
+              ctx.arc(x + CELL_SIZE / 2, y + CELL_SIZE / 2 - 1, 7.5, 0, Math.PI * 2);
+              ctx.fill();
+
+              ctx.fillStyle = '#22C55E';
+              ctx.beginPath();
+              ctx.arc(x + CELL_SIZE / 2 - 1.5, y + CELL_SIZE / 2 - 3, 4.5, 0, Math.PI * 2);
+              ctx.fill();
+
+              ctx.fillStyle = '#86EFAC';
+              ctx.beginPath();
+              ctx.arc(x + CELL_SIZE / 2 - 2, y + CELL_SIZE / 2 - 4, 1.5, 0, Math.PI * 2);
+              ctx.fill();
+              break;
+            }
+          }
+        }
+      }
+
+      // Linhas da grade
+      ctx.strokeStyle = 'rgba(28, 41, 32, 0.7)';
+      ctx.lineWidth = 1;
+      for (let c = 0; c <= cols; c++) {
+        ctx.beginPath();
+        ctx.moveTo(c * CELL_SIZE, 0);
+        ctx.lineTo(c * CELL_SIZE, CANVAS_HEIGHT);
+        ctx.stroke();
+      }
+      for (let r = 0; r <= rows; r++) {
+        ctx.beginPath();
+        ctx.moveTo(0, r * CELL_SIZE);
+        ctx.lineTo(CANVAS_WIDTH, r * CELL_SIZE);
+        ctx.stroke();
+      }
+
+      // 3. Renderização dos Agentes Dispersores
+      for (const d of eng.dispersers) {
+        const speed = Math.hypot(d.vx, d.vy) || 1;
+        const dirX = d.vx / speed;
+        const dirY = d.vy / speed;
+
+        ctx.fillStyle = d.hasSeed ? 'rgba(245, 158, 11, 0.25)' : 'rgba(250, 204, 21, 0.22)';
+        ctx.beginPath();
+        ctx.arc(d.x, d.y, 8, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = 'rgba(250, 204, 21, 0.45)';
+        ctx.beginPath();
+        ctx.arc(d.x - dirX * 5, d.y - dirY * 5, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = d.hasSeed ? AGENT_SEED_COLOR : AGENT_COLOR;
+        ctx.beginPath();
+        ctx.arc(d.x, d.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        const wingOffset = Math.sin(visualFrameCount * 0.4 + d.id) * 3;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(d.x, d.y);
+        ctx.lineTo(d.x - dirY * (4 + wingOffset), d.y + dirX * (4 + wingOffset));
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(d.x, d.y);
+        ctx.lineTo(d.x + dirY * (4 + wingOffset), d.y - dirX * (4 + wingOffset));
+        ctx.stroke();
+
+        if (d.hasSeed) {
+          ctx.fillStyle = '#D97706';
+          ctx.beginPath();
+          ctx.arc(d.x, d.y + 3, 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // 4. Destaque de Célula sob o Cursor
+      const hover = hoverCoordRef.current;
+      if (hover && isCoordValid(hover, cols, rows)) {
+        const hx = hover.col * CELL_SIZE;
+        const hy = hover.row * CELL_SIZE;
+
+        ctx.strokeStyle = '#4ADE80';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(hx + 1, hy + 1, CELL_SIZE - 2, CELL_SIZE - 2);
+
+        ctx.fillStyle = 'rgba(74, 222, 128, 0.15)';
+        ctx.fillRect(hx, hy, CELL_SIZE, CELL_SIZE);
+      }
+
+      animationFrameId = requestAnimationFrame(render);
+    };
+
+    animationFrameId = requestAnimationFrame(render);
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, [getEngine]);
+
+  // Handlers de Mouse e Toque
+  const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    isMouseDownRef.current = true;
+    applyBrushAtPoint(e.clientX, e.clientY);
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    const eng = engineRef.current;
+    if (!canvas || !eng) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const canvasX = (e.clientX - rect.left) * scaleX;
+    const canvasY = (e.clientY - rect.top) * scaleY;
+
+    const coord = mouseToGridCoord(canvasX, canvasY, GRID_COLS, GRID_ROWS, CELL_SIZE);
+    hoverCoordRef.current = coord;
+
+    if (coord) {
+      const cell = eng.grid[coord.row]?.[coord.col] ?? null;
+      const neighborTrees = countNeighboringAdultTrees(eng.grid, coord);
+      onCellHoverRef.current?.(coord, cell, neighborTrees);
+    } else {
+      onCellHoverRef.current?.(null, null, 0);
+    }
+
+    if (isMouseDownRef.current) {
+      applyBrushAtPoint(e.clientX, e.clientY);
+    }
+  };
+
+  const handleMouseUp = () => {
+    isMouseDownRef.current = false;
+  };
+
+  const handleMouseLeave = () => {
+    isMouseDownRef.current = false;
+    hoverCoordRef.current = null;
+    onCellHoverRef.current?.(null, null, 0);
+  };
+
+  // Suporte Touch para Dispositivos Móveis
+  const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (e.touches.length > 0) {
+      const touch = e.touches[0];
+      isMouseDownRef.current = true;
+      applyBrushAtPoint(touch.clientX, touch.clientY);
+    }
+  };
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (e.touches.length > 0 && isMouseDownRef.current) {
+      const touch = e.touches[0];
+      applyBrushAtPoint(touch.clientX, touch.clientY);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    isMouseDownRef.current = false;
+    hoverCoordRef.current = null;
+    onCellHoverRef.current?.(null, null, 0);
+  };
+
   return (
-    <div
-      ref={containerRef}
-      className={`w-full max-w-[640px] aspect-[4/3] rounded-lg border border-border-subtle overflow-hidden bg-grid-empty shadow-lg relative flex items-center justify-center touch-none select-none [&>canvas]:!w-full [&>canvas]:!h-full [&>canvas]:block ${className ?? ''}`}
-    />
+    <div className={`relative w-full max-w-[640px] aspect-[4/3] rounded-xl overflow-hidden border border-border-subtle bg-[#0B130E] shadow-2xl touch-none select-none flex items-center justify-center ${className ?? ''}`}>
+      <canvas
+        ref={canvasRef}
+        width={CANVAS_WIDTH}
+        height={CANVAS_HEIGHT}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseLeave}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        className="w-full h-full block cursor-crosshair"
+      />
+    </div>
   );
 }

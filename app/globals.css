@@ -22,6 +22,16 @@
   --stage-mature: #16a34a;
   --stage-bloom: #fb7185;
 
+  /* Bacia Hidrográfica e Mata Ciliar */
+  --watershed-water: #1d4ed8;
+  --watershed-dry-river: #94a3b8;
+  --watershed-fertile: #78350f;
+  --watershed-dry-soil: #fde68a;
+  --watershed-seed: #d97706;
+  --watershed-sprout: #86efac;
+  --watershed-tree: #15803d;
+  --watershed-disperser: #facc15;
+
   /* Agentes Polinizadores */
   --agent-wind: #67e8f9;
   --agent-bee: #facc15;

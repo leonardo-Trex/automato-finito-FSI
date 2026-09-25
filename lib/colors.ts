@@ -33,6 +33,18 @@ export const PALETTE = {
     bloom: '#FB7185',            // Fase reprodutiva / florescência (coral)
   },
 
+  // Bacia Hidrográfica e Mata Ciliar (TASK.md § Fase 3)
+  watershed: {
+    water: '#1D4ED8',            // LEITO_AGUA (Azul vivo)
+    dryRiver: '#94A3B8',         // LEITO_SECO (Cinza leito árido)
+    fertileSoil: '#78350F',      // SOLO_FERTIL (Marrom úmido)
+    drySoil: '#FDE68A',          // SOLO_SECO (Areia / Árido)
+    seed: '#D97706',             // SEMENTE (Ponto ocre)
+    sprout: '#86EFAC',           // BROTO (Verde broto)
+    tree: '#15803D',             // ARVORE_ADULTA (Verde escuro de dossel)
+    disperser: '#FACC15',        // DISPERSOR (Amarelo brilhante)
+  },
+
   // Identidade das Espécies (Fase 2 / Sprint 2)
   species: {
     bryophyte: {
