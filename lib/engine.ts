@@ -212,6 +212,26 @@ export class SimulationEngine {
   }
 
   /**
+   * Ajusta dinamicamente a quantidade de agentes dispersores (polinizadores).
+   */
+  public setDisperserCount(count: number): void {
+    const target = Math.max(0, Math.floor(count));
+    this.config.disperserCount = target;
+    const current = this.dispersers.length;
+
+    if (target > current) {
+      const extra = createDispersers(target - current);
+      const maxId = this.dispersers.reduce((max, d) => Math.max(max, d.id), 0);
+      extra.forEach((d, idx) => {
+        d.id = maxId + idx + 1;
+      });
+      this.dispersers.push(...extra);
+    } else if (target < current) {
+      this.dispersers = this.dispersers.slice(0, target);
+    }
+  }
+
+  /**
    * Reseta a simulação mantendo a configuração atual.
    */
   public reset(): void {
@@ -578,6 +598,11 @@ export class SimulationEngine {
         }
         break;
 
+      case 'dry_soil':
+        cell.state = CellState.SOLO_SECO;
+        cell.age = 0;
+        break;
+
       case 'inspect':
       default:
         break;
@@ -663,6 +688,7 @@ export class SimulationEngine {
       currentSeason: this.season,
       seasonProgress,
       totalTicks: this.totalTicks,
+      disperserCount: this.dispersers.length,
     };
   }
 }

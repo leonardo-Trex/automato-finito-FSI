@@ -26,6 +26,8 @@ interface ControlBarProps {
   onSpeedChange: (speed: number) => void;
   waterRadius: number;
   onWaterRadiusChange: (radius: number) => void;
+  disperserCount?: number;
+  onDisperserCountChange?: (count: number) => void;
   activeBrush: BrushTool;
   onSelectBrush: (brush: BrushTool) => void;
   activePresetId: string;
@@ -38,6 +40,7 @@ const BRUSHES: Array<{ id: BrushTool; label: string; icon: string; desc: string 
   { id: 'deforest', label: 'Desmatar', icon: '🪓', desc: 'Remover vegetação e sombra' },
   { id: 'water_channel', label: 'Canal Água', icon: '💧', desc: 'Escavar leito de rio ativo' },
   { id: 'dry_channel', label: 'Secar Canal', icon: '🏜️', desc: 'Secar leito de rio' },
+  { id: 'dry_soil', label: 'Solo Seco', icon: '🟡', desc: 'Colocar solo seco inerte' },
   { id: 'inspect', label: 'Inspecionar', icon: '🔍', desc: 'Apenas consultar célula' },
 ];
 
@@ -50,6 +53,8 @@ export default function ControlBar({
   onSpeedChange,
   waterRadius,
   onWaterRadiusChange,
+  disperserCount,
+  onDisperserCountChange,
   activeBrush,
   onSelectBrush,
   activePresetId,
@@ -133,7 +138,7 @@ export default function ControlBar({
           </span>
         </div>
 
-        <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-1.5">
           {BRUSHES.map((b) => {
             const isSelected = activeBrush === b.id;
             return (
@@ -155,8 +160,8 @@ export default function ControlBar({
         </div>
       </div>
 
-      {/* Linha Inferior: Sliders de Parâmetros (Velocidade e Raio Hídrico) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t border-border-subtle/50">
+      {/* Linha Inferior: Sliders de Parâmetros (Velocidade, Raio Hídrico e Polinizadores) */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1 border-t border-border-subtle/50">
         {/* Slider de Velocidade */}
         <div className="space-y-1">
           <div className="flex justify-between items-center text-xs">
@@ -192,6 +197,25 @@ export default function ControlBar({
             value={waterRadius}
             onChange={(e) => onWaterRadiusChange(Number(e.target.value))}
             className="w-full accent-blue-400 cursor-pointer h-1.5 bg-surface-panel rounded-lg"
+          />
+        </div>
+
+        {/* Slider de Polinizadores */}
+        <div className="space-y-1">
+          <div className="flex justify-between items-center text-xs">
+            <span className="text-text-muted font-medium">Polinizadores:</span>
+            <span className="font-mono text-amber-400 font-semibold">
+              {disperserCount ?? 10} {(disperserCount ?? 10) === 1 ? 'agente' : 'agentes'}
+            </span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={30}
+            step={1}
+            value={disperserCount ?? 10}
+            onChange={(e) => onDisperserCountChange?.(Number(e.target.value))}
+            className="w-full accent-amber-400 cursor-pointer h-1.5 bg-surface-panel rounded-lg"
           />
         </div>
       </div>

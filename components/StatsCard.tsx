@@ -135,7 +135,7 @@ export default function StatsCard({ metrics }: StatsCardProps) {
           </div>
           <div className="flex justify-between items-center text-[10px] text-text-muted font-mono">
             <span>Sementes ativas no mapa: <strong className="text-foreground">{metrics.seedCount}</strong></span>
-            <span>Dispersores: <strong className="text-foreground">10</strong></span>
+            <span>Dispersores: <strong className="text-foreground">{metrics.disperserCount ?? 10}</strong></span>
           </div>
         </div>
       </div>

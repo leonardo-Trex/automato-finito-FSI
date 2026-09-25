@@ -39,6 +39,7 @@ export interface SimulationCanvasProps {
   activeBrush: BrushTool;
   framesPerTick: number;
   waterRadius: number;
+  disperserCount?: number;
   running: boolean;
   stepTrigger: number;
   resetTrigger: number;
@@ -52,6 +53,7 @@ export default function SimulationCanvas({
   activeBrush,
   framesPerTick,
   waterRadius,
+  disperserCount,
   running,
   stepTrigger,
   resetTrigger,
@@ -71,11 +73,12 @@ export default function SimulationCanvas({
       engineRef.current = new SimulationEngine(preset.createGrid(), {
         waterRadius,
         framesPerTick,
+        disperserCount: disperserCount !== undefined ? disperserCount : undefined,
       });
       engineRef.current.season = preset.initialSeason;
     }
     return engineRef.current;
-  }, [activePresetId, waterRadius, framesPerTick]);
+  }, [activePresetId, waterRadius, framesPerTick, disperserCount]);
 
   // Referências sincronizadas para o loop de requestAnimationFrame
   const activeBrushRef = useRef(activeBrush);
@@ -109,6 +112,16 @@ export default function SimulationCanvas({
   }, [waterRadius]);
 
   useEffect(() => {
+    if (disperserCount !== undefined) {
+      const eng = engineRef.current;
+      if (eng) {
+        eng.setDisperserCount(disperserCount);
+        onMetricsUpdateRef.current?.(eng.getMetrics());
+      }
+    }
+  }, [disperserCount]);
+
+  useEffect(() => {
     runningRef.current = running;
     const eng = engineRef.current;
     if (eng) {
@@ -129,8 +142,11 @@ export default function SimulationCanvas({
     const eng = getEngine();
     const preset = PRESETS[activePresetId] ?? PRESETS.balanced;
     eng.loadGrid(preset.createGrid(), preset.initialSeason);
+    if (disperserCount !== undefined) {
+      eng.setDisperserCount(disperserCount);
+    }
     onMetricsUpdateRef.current?.(eng.getMetrics());
-  }, [activePresetId, resetTrigger, getEngine]);
+  }, [activePresetId, resetTrigger, getEngine, disperserCount]);
 
   // Passo único manual
   useEffect(() => {

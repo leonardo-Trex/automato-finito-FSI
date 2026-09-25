@@ -10,6 +10,8 @@ import {
   createBalancedForestPreset,
   createDegradedBasinPreset,
   createBaseGrid,
+  createDrySoilPreset,
+  PRESETS,
 } from '../presets';
 import { chebyshevDistance, manhattanDistance, getMooreNeighbors } from '../utils';
 
@@ -286,5 +288,58 @@ describe('Agentes Dispersores e Ferramentas Interativas', () => {
     // Pincel de secar canal de água
     engine.applyBrush({ col: 3, row: 3 }, 'dry_channel');
     expect(engine.grid[3][3].state).toBe(CellState.LEITO_SECO);
+
+    // Pincel de colocar solo seco inerte
+    engine.applyBrush({ col: 1, row: 1 }, 'dry_soil');
+    expect(engine.grid[1][1].state).toBe(CellState.SOLO_SECO);
+
+    engine.applyBrush({ col: 3, row: 3 }, 'dry_soil');
+    expect(engine.grid[3][3].state).toBe(CellState.SOLO_SECO);
+  });
+
+  it('permite escolher a quantidade de polinizadores dinamicamente', () => {
+    const engine = new SimulationEngine(createBaseGrid(), { disperserCount: 10 });
+    expect(engine.dispersers.length).toBe(10);
+    expect(engine.getMetrics().disperserCount).toBe(10);
+
+    // Aumenta quantidade para 15
+    engine.setDisperserCount(15);
+    expect(engine.dispersers.length).toBe(15);
+    expect(engine.config.disperserCount).toBe(15);
+    expect(engine.getMetrics().disperserCount).toBe(15);
+
+    // Reduz quantidade para 3
+    engine.setDisperserCount(3);
+    expect(engine.dispersers.length).toBe(3);
+    expect(engine.config.disperserCount).toBe(3);
+    expect(engine.getMetrics().disperserCount).toBe(3);
+
+    // Reduz quantidade para 0
+    engine.setDisperserCount(0);
+    expect(engine.dispersers.length).toBe(0);
+    expect(engine.config.disperserCount).toBe(0);
+    expect(engine.getMetrics().disperserCount).toBe(0);
+  });
+
+  it('cria mapa com apenas solo seco inerte através do Preset Solo Seco Inerte', () => {
+    const dryGrid = createDrySoilPreset();
+    for (let r = 0; r < dryGrid.length; r++) {
+      for (let c = 0; c < dryGrid[0].length; c++) {
+        expect(dryGrid[r][c].state).toBe(CellState.SOLO_SECO);
+      }
+    }
+
+    const engine = new SimulationEngine(dryGrid);
+    const metrics = engine.getMetrics();
+    expect(metrics.totalRiverCells).toBe(0);
+    expect(metrics.activeRiverCells).toBe(0);
+    expect(metrics.adultTreeCount).toBe(0);
+    expect(metrics.sproutCount).toBe(0);
+    expect(metrics.seedCount).toBe(0);
+
+    // Verifica presença no catálogo PRESETS
+    expect(PRESETS.dry_soil).toBeDefined();
+    expect(PRESETS.dry_soil.name).toBe('Solo Seco Inerte');
+    expect(PRESETS.dry_soil.badge).toBe('Árido');
   });
 });
