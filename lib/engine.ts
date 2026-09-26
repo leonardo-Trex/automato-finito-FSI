@@ -753,9 +753,11 @@ export class SimulationEngine {
                 } else {
                   // Tentativa falhou: marca flag para não rolar novamente neste encontro
                   cell.hasReceivedCloud = true;
-                  cell.cloudMoisture = 25;
                 }
               }
+            } else if (cell.state === CellState.BROTO) {
+              // Brotos recebem umidade da chuva sem alterar seu estágio de crescimento.
+              cell.cloudMoisture = 25;
             } else if (cell.state === CellState.LEITO_AGUA) {
               // Retarda o secamento do leito de água
               cell.cloudMoisture = 30;
