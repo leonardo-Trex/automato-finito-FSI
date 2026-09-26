@@ -67,5 +67,5 @@ export const DEFAULT_SIM_CONFIG: SimConfig = {
   disperserDropProbability: 0.06,     // 6% de chance por tick de soltar semente em solo
   framesPerTick: 12,                  // ~5 ticks/seg a 60 FPS
   fertileSoilRetentionCycles: 20,     // Solos férteis duram 20 ciclos sem água contínua antes de dessecar
-  cloudSeedGerminationProbability: 0.05, // 5% de chance de semente germinar ao passar nuvem
+  cloudSeedGerminationProbability: 0.20, // 20% de chance por encontro com nuvem (1 tentativa por nuvem/semente)
 };

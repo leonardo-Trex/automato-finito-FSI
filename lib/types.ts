@@ -37,6 +37,12 @@ export interface Cell {
   age: number;
   /** Reserva de umidade fornecida por chuva de nuvens (retarda evaporação e secamento) */
   cloudMoisture?: number;
+  /**
+   * Flag de memória: indica que esta semente já recebeu sua tentativa de germinação neste
+   * encontro com uma nuvem. Evita múltiplos rolamentos enquanto a nuvem paira sobre a célula.
+   * Resetado automaticamente quando a semente sai da área de cobertura de todas as nuvens.
+   */
+  hasReceivedCloud?: boolean;
 }
 
 /** Matriz bidimensional de células */

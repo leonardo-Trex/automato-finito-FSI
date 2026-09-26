@@ -709,6 +709,11 @@ export class SimulationEngine {
     // 4. Precipitação e interação com o solo:
     // Solo inerte: 70% de chance de virar solo fértil
     // Leito de água: recebe reserva de umidade que retarda o secamento
+    // Semente: 1 tentativa de germinação por encontro com nuvem (sem rolagens repetidas enquanto paira)
+
+    // Rastreia quais células de semente estão sob cobertura de alguma nuvem neste tick
+    const coveredSeedKeys = new Set<string>();
+
     for (const cloud of this.clouds) {
       const minCol = Math.max(0, Math.floor((cloud.x - cloud.radius) / CELL_SIZE));
       const maxCol = Math.min(cols - 1, Math.floor((cloud.x + cloud.radius) / CELL_SIZE));
@@ -732,15 +737,24 @@ export class SimulationEngine {
                 cell.cloudMoisture = 25;
               }
             } else if (cell.state === CellState.SEMENTE) {
-              // 5% de chance para que a semente germine ao passar nuvem
-              const germinationProb = this.config.cloudSeedGerminationProbability ?? 0.05;
-              if (Math.random() < germinationProb) {
-                cell.state = CellState.BROTO;
-                cell.age = 0;
-                cell.cloudMoisture = 25;
-                this.seedsGerminated++;
-              } else {
-                cell.cloudMoisture = 25;
+              const key = `${r},${c}`;
+              coveredSeedKeys.add(key);
+
+              // Só tenta germinar se esta semente ainda não recebeu tentativa neste encontro.
+              // Garante exatamente 1 rolagem por cobertura de nuvem, eliminando o efeito
+              // acumulativo de múltiplos ticks sobrevoando a mesma célula.
+              if (!cell.hasReceivedCloud) {
+                const germinationProb = this.config.cloudSeedGerminationProbability ?? 0.20;
+                if (Math.random() < germinationProb) {
+                  cell.state = CellState.BROTO;
+                  cell.age = 0;
+                  cell.cloudMoisture = 25;
+                  this.seedsGerminated++;
+                } else {
+                  // Tentativa falhou: marca flag para não rolar novamente neste encontro
+                  cell.hasReceivedCloud = true;
+                  cell.cloudMoisture = 25;
+                }
               }
             } else if (cell.state === CellState.LEITO_AGUA) {
               // Retarda o secamento do leito de água
@@ -751,6 +765,17 @@ export class SimulationEngine {
       }
 
       cloud.life--;
+    }
+
+    // Reset do flag para sementes que saíram da cobertura de todas as nuvens.
+    // Permite nova tentativa quando uma nuvem diferente passar sobre elas.
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const cell = this.grid[r][c];
+        if (cell.state === CellState.SEMENTE && cell.hasReceivedCloud && !coveredSeedKeys.has(`${r},${c}`)) {
+          cell.hasReceivedCloud = false;
+        }
+      }
     }
 
     // Remove nuvens cujo tempo de vida terminou

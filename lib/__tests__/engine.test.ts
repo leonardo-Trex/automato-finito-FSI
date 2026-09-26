@@ -435,9 +435,9 @@ describe('Nuvens e Precipitação Pluvial', () => {
     expect(cloud.y).not.toBe(prevY);
   });
 
-  it('germina semente em broto com 5% de chance ao passar nuvem por cima', () => {
+  it('germina semente em broto ao passar nuvem por cima (20% de chance, 1 tentativa por encontro)', () => {
     const grid = createBaseGrid(10, 10);
-    const engine = new SimulationEngine(grid);
+    const engine = new SimulationEngine(grid, { cloudSeedGerminationProbability: 1.0 }); // 100% para garantir germinação na 1ª tentativa
     engine.season = ClimateSeason.CHUVOSA;
 
     // Coloca semente na célula (5, 5)
@@ -450,21 +450,180 @@ describe('Nuvens e Precipitação Pluvial', () => {
     cloud.radius = 25;
     engine.clouds.push(cloud);
 
-    // Executa múltiplos ticks com nuvem sobre a semente para validar germinação estatística (5% de chance por tick)
-    let germinated = false;
-    for (let i = 0; i < 90; i++) {
-      cloud.life = 100; // Mantém nuvem ativa sobre a semente
-      engine.updateCloudsTick();
-      if ((targetCell.state as CellState) === CellState.BROTO) {
-        germinated = true;
-        break;
-      }
-    }
+    // Com 100% de chance, deve germinar na primeira tentativa (1 tick)
+    cloud.life = 100;
+    engine.updateCloudsTick();
 
-    expect(germinated).toBe(true);
     expect(engine.grid[5][5].state).toBe(CellState.BROTO);
     expect(engine.seedsGerminated).toBeGreaterThanOrEqual(1);
-    expect(engine.grid[5][5].cloudMoisture).toBeGreaterThan(0);
+  });
+
+  it('não rola germinação múltiplas vezes enquanto a nuvem paira sobre a mesma semente', () => {
+    const grid = createBaseGrid(10, 10);
+    const engine = new SimulationEngine(grid, { cloudSeedGerminationProbability: 0.0 }); // 0% → nunca germina
+    engine.season = ClimateSeason.CHUVOSA;
+
+    const targetCell = engine.grid[5][5];
+    targetCell.state = CellState.SEMENTE;
+    targetCell.age = 0;
+
+    const cloud = createCloud(1, 5 * 20 + 10, 5 * 20 + 10);
+    cloud.radius = 25;
+    engine.clouds.push(cloud);
+
+    // Executa 50 ticks com a nuvem parada sobre a semente (nunca sai do raio)
+    for (let i = 0; i < 50; i++) {
+      cloud.life = 100;
+      engine.updateCloudsTick();
+    }
+
+    // Com probabilidade 0%, jamais deve ter germinado — mas o flag deve ter sido setado na 1ª tentativa
+    expect(engine.grid[5][5].state).toBe(CellState.SEMENTE);
+    expect(engine.grid[5][5].hasReceivedCloud).toBe(true);
+    expect(engine.seedsGerminated).toBe(0);
+  });
+
+  it('reseta hasReceivedCloud quando a semente sai da cobertura da nuvem', () => {
+    const grid = createBaseGrid(10, 10);
+    const engine = new SimulationEngine(grid, { cloudSeedGerminationProbability: 0.0 }); // 0% → nunca germina
+    engine.season = ClimateSeason.CHUVOSA;
+
+    const targetCell = engine.grid[5][5];
+    targetCell.state = CellState.SEMENTE;
+    targetCell.age = 0;
+
+    // Nuvem sobre a semente: seta hasReceivedCloud = true
+    const cloud = createCloud(1, 5 * 20 + 10, 5 * 20 + 10);
+    cloud.radius = 25;
+    engine.clouds.push(cloud);
+
+    cloud.life = 100;
+    engine.updateCloudsTick();
+    expect(engine.grid[5][5].hasReceivedCloud).toBe(true);
+
+    // Move a nuvem para longe da semente
+    cloud.x = 9999;
+    cloud.y = 9999;
+
+    cloud.life = 100;
+    engine.updateCloudsTick();
+
+    // Semente saiu da cobertura → flag deve ser resetado
+    expect(engine.grid[5][5].hasReceivedCloud).toBe(false);
+  });
+
+  it('permite nova tentativa de germinação quando uma nova nuvem passa após a primeira ter saído', () => {
+    const grid = createBaseGrid(10, 10);
+    // Primeira nuvem com 0% → não germina e seta flag
+    const engine = new SimulationEngine(grid, { cloudSeedGerminationProbability: 0.0 });
+    engine.season = ClimateSeason.CHUVOSA;
+
+    const targetCell = engine.grid[5][5];
+    targetCell.state = CellState.SEMENTE;
+    targetCell.age = 0;
+
+    const cloud1 = createCloud(1, 5 * 20 + 10, 5 * 20 + 10);
+    cloud1.radius = 25;
+    engine.clouds.push(cloud1);
+
+    cloud1.life = 100;
+    engine.updateCloudsTick();
+    expect(engine.grid[5][5].hasReceivedCloud).toBe(true);
+
+    // Remove a primeira nuvem e adiciona nova nuvem com 100% de germinação
+    engine.clouds = [];
+    engine.config.cloudSeedGerminationProbability = 1.0;
+
+    // Tick sem nuvem → reseta flag
+    engine.updateCloudsTick();
+    expect(engine.grid[5][5].hasReceivedCloud).toBe(false);
+
+    // Nova nuvem com 100%: deve germinar agora
+    const cloud2 = createCloud(2, 5 * 20 + 10, 5 * 20 + 10);
+    cloud2.radius = 25;
+    engine.clouds.push(cloud2);
+
+    cloud2.life = 100;
+    engine.updateCloudsTick();
+    expect(engine.grid[5][5].state).toBe(CellState.BROTO);
+  });
+  it('NÃO germina via cloudMoisture quando dado de nuvem falha — regressão do bug de germinação garantida', () => {
+    // Antes do fix: cloudMoisture = 25 era setado mesmo quando o dado falhava.
+    // O step() interpretava cloudMoisture > 0 como hasWater = true, germinando
+    // a semente garantidamente após seedToSproutTicks (10) ticks — ignorando
+    // completamente o dado de cloudSeedGerminationProbability.
+    const grid = createBaseGrid(10, 10);
+    const engine = new SimulationEngine(grid, {
+      cloudSeedGerminationProbability: 0.0, // 0% → dado sempre falha
+      seedToSproutTicks: 10,
+      waterRadius: 0, // sem rio próximo
+      disperserCount: 0,
+    });
+    engine.season = ClimateSeason.CHUVOSA;
+
+    engine.grid[5][5].state = CellState.SEMENTE;
+    engine.grid[5][5].age = 0;
+
+    const cloud = createCloud(1, 5 * 20 + 10, 5 * 20 + 10);
+    cloud.radius = 25;
+    engine.clouds.push(cloud);
+
+    // Executa 20 ticks completos (step inclui updateCloudsTick) com nuvem parada.
+    // Antes do fix: germinaria no tick 10 via cloudMoisture → hasWater → age >= 10.
+    // Após o fix: sem cloudMoisture, hasWater = false → semente decai normalmente
+    // após seedDecayCycles (15) ticks → SOLO_SECO. Nunca vira BROTO.
+    for (let i = 0; i < 20; i++) {
+      cloud.life = 100;
+      engine.step();
+    }
+
+    // O importante: semente NÃO virou BROTO (germinação pelo backdoor do cloudMoisture)
+    // Ela decaiu para SOLO_SECO por falta de água real (seedDecayCycles = 15 ticks)
+    expect(engine.grid[5][5].state).not.toBe(CellState.BROTO);
+    expect(engine.seedsGerminated).toBe(0);
+  });
+
+  it('renova cloudMoisture de um BROTO quando a nuvem passa por cima', () => {
+    const grid = createBaseGrid(10, 10);
+    const engine = new SimulationEngine(grid, { waterRadius: 0, disperserCount: 0 });
+    engine.season = ClimateSeason.CHUVOSA;
+
+    engine.grid[5][5].state = CellState.BROTO;
+    engine.grid[5][5].age = 2;
+    engine.grid[5][5].cloudMoisture = 1; // Quase sem água
+
+    const cloud = createCloud(1, 5 * 20 + 10, 5 * 20 + 10);
+    cloud.radius = 25;
+    engine.clouds.push(cloud);
+
+    engine.updateCloudsTick();
+
+    // A nuvem regou o broto, renovando o cloudMoisture para 25
+    expect(engine.grid[5][5].cloudMoisture).toBe(25);
+    expect(engine.grid[5][5].state).toBe(CellState.BROTO);
+  });
+
+  it('permite que um BROTO longe do rio amadureça até ARVORE_ADULTA sustentado pela chuva da nuvem', () => {
+    const grid = createBaseGrid(10, 10);
+    const engine = new SimulationEngine(grid, {
+      waterRadius: 0, // Sem rio por perto
+      sproutToTreeTicks: 16,
+      disperserCount: 0,
+    });
+    engine.season = ClimateSeason.CHUVOSA;
+
+    // Broto longe do rio recém-irrigado pela nuvem
+    engine.grid[5][5].state = CellState.BROTO;
+    engine.grid[5][5].age = 0;
+    engine.grid[5][5].cloudMoisture = 25; // 25 ticks de umidade > 16 ticks necessários
+
+    // Avança 16 ticks
+    for (let i = 0; i < 16; i++) {
+      engine.step();
+    }
+
+    // Graças à umidade da chuva, o broto sobreviveu e amadureceu em árvore adulta!
+    expect(engine.grid[5][5].state).toBe(CellState.ARVORE_ADULTA);
   });
 });
 
