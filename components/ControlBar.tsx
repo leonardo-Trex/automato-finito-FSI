@@ -69,6 +69,7 @@ export default function ControlBar({
           <button
             type="button"
             onClick={onTogglePlay}
+            suppressHydrationWarning
             className={`px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer ${
               running
                 ? 'bg-amber-600/20 text-amber-300 border border-amber-500/40 hover:bg-amber-600/30'
@@ -83,6 +84,7 @@ export default function ControlBar({
             type="button"
             onClick={onStep}
             disabled={running}
+            suppressHydrationWarning
             className="px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium bg-surface-panel border border-border-subtle text-foreground hover:bg-surface-hover hover:border-border-active/40 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer flex items-center gap-1"
             title="Avançar exatamente 1 tick"
           >

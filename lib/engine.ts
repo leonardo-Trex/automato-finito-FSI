@@ -261,6 +261,7 @@ export class SimulationEngine {
    */
   public setWaterRadius(waterRadius: number): void {
     this.config.waterRadius = waterRadius;
+    this.synchronizeInitialSoil();
   }
 
   /**
@@ -340,6 +341,7 @@ export class SimulationEngine {
         const next = this.nextGrid[r][c];
         const coord: GridCoord = { col: c, row: r };
         const hydrated = isHydrated[r][c];
+        const hasWater = hydrated || (current.cloudMoisture !== undefined && current.cloudMoisture > 0);
 
         // Decrementa reserva de umidade deixada por chuva de nuvens
         next.cloudMoisture =
@@ -417,21 +419,31 @@ export class SimulationEngine {
 
           // --- SOLO FÉRTIL (MARGEM ÚMIDA) ---
           case CellState.SOLO_FERTIL: {
-            if (!hydrated) {
-              // Se o trecho de rio secar, o solo ao redor desidrata
-              next.state = CellState.SOLO_SECO;
-              next.age = 0;
+            if (!hasWater) {
+              // Os solos secos inertes quando se transformam em férteis ficam 20 ciclos férteis sem água
+              const maxRetentionCycles = this.config.fertileSoilRetentionCycles ?? 20;
+              const newAge = current.age + 1;
+              if (newAge >= maxRetentionCycles) {
+                // Após 20 ciclos sem água contínua, desseca de volta para SOLO_SECO
+                next.state = CellState.SOLO_SECO;
+                next.age = 0;
+              } else {
+                // Permanece fértil durante os 20 ciclos
+                next.state = CellState.SOLO_FERTIL;
+                next.age = newAge;
+              }
             } else {
+              // Continuamente hidratado pela água ou chuva
               next.state = CellState.SOLO_FERTIL;
-              next.age = current.age + 1;
+              next.age = 0;
             }
             break;
           }
 
           // --- SEMENTE DEPOSITADA ---
           case CellState.SEMENTE: {
-            if (hydrated) {
-              // Semente em solo fértil sobrevive e germina após tempo necessário
+            if (hasWater) {
+              // Semente em solo fértil / hidratado sobrevive e germina após tempo necessário
               const newAge = current.age + 1;
               if (newAge >= this.config.seedToSproutTicks) {
                 next.state = CellState.BROTO;
@@ -458,7 +470,7 @@ export class SimulationEngine {
 
           // --- BROTO JOVEM ---
           case CellState.BROTO: {
-            if (!hydrated) {
+            if (!hasWater) {
               // Se a água secar durante a fase de broto, ele morre
               next.state = CellState.SOLO_SECO;
               next.age = 0;
@@ -624,7 +636,8 @@ export class SimulationEngine {
    * 2. Surgem por condensação quando há >= 4 canais de água em raio de 1 bloco.
    * 3. Podem surgir aleatoriamente das bordas em pequenas quantidades (5% de chance).
    * 4. Deslocam-se aleatoriamente e, ao passarem sobre solo inerte (SOLO_SECO), este tem 70% de chance de virar SOLO_FERTIL.
-   * 5. A água das nuvens adiciona reserva de umidade que retarda o secamento dos canais de água.
+   * 5. Ao passarem sobre uma semente (SEMENTE), esta tem 5% de chance de germinar (virando BROTO).
+   * 6. A água das nuvens adiciona reserva de umidade que retarda o secamento dos canais de água.
    */
   public updateCloudsTick(): void {
     // 1. As nuvens irão aparecer apenas na época chuvosa
@@ -716,6 +729,17 @@ export class SimulationEngine {
               if (Math.random() < 0.70) {
                 cell.state = CellState.SOLO_FERTIL;
                 cell.age = 0;
+                cell.cloudMoisture = 25;
+              }
+            } else if (cell.state === CellState.SEMENTE) {
+              // 5% de chance para que a semente germine ao passar nuvem
+              const germinationProb = this.config.cloudSeedGerminationProbability ?? 0.05;
+              if (Math.random() < germinationProb) {
+                cell.state = CellState.BROTO;
+                cell.age = 0;
+                cell.cloudMoisture = 25;
+                this.seedsGerminated++;
+              } else {
                 cell.cloudMoisture = 25;
               }
             } else if (cell.state === CellState.LEITO_AGUA) {

@@ -65,8 +65,14 @@ export default function SimulationCanvas({
 
   // Instância do motor mantida internamente na ref do Canvas
   const engineRef = useRef<SimulationEngine | null>(null);
+  const isFirstMountRef = useRef<boolean>(true);
+  const disperserCountRef = useRef<number | undefined>(disperserCount);
 
-  // Inicializa engine na montagem ou via ref
+  useEffect(() => {
+    disperserCountRef.current = disperserCount;
+  }, [disperserCount]);
+
+  // Inicializa engine na montagem ou via ref (estável, sem recriação em sliders)
   const getEngine = useCallback(() => {
     if (!engineRef.current) {
       const preset = PRESETS[activePresetId] ?? PRESETS.balanced;
@@ -78,7 +84,8 @@ export default function SimulationCanvas({
       engineRef.current.season = preset.initialSeason;
     }
     return engineRef.current;
-  }, [activePresetId, waterRadius, framesPerTick, disperserCount]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Referências sincronizadas para o loop de requestAnimationFrame
   const activeBrushRef = useRef(activeBrush);
@@ -137,16 +144,23 @@ export default function SimulationCanvas({
     onCellHoverRef.current = onCellHover;
   }, [onCellHover]);
 
-  // Carrega Preset quando activePresetId ou resetTrigger mudar
+  // Carrega Preset EXCLUSIVAMENTE quando activePresetId ou resetTrigger mudar
   useEffect(() => {
     const eng = getEngine();
+
+    if (isFirstMountRef.current) {
+      isFirstMountRef.current = false;
+      onMetricsUpdateRef.current?.(eng.getMetrics());
+      return;
+    }
+
     const preset = PRESETS[activePresetId] ?? PRESETS.balanced;
     eng.loadGrid(preset.createGrid(), preset.initialSeason);
-    if (disperserCount !== undefined) {
-      eng.setDisperserCount(disperserCount);
+    if (disperserCountRef.current !== undefined) {
+      eng.setDisperserCount(disperserCountRef.current);
     }
     onMetricsUpdateRef.current?.(eng.getMetrics());
-  }, [activePresetId, resetTrigger, getEngine, disperserCount]);
+  }, [activePresetId, resetTrigger, getEngine]);
 
   // Passo único manual
   useEffect(() => {

@@ -434,4 +434,100 @@ describe('Nuvens e Precipitação Pluvial', () => {
     expect(cloud.x).not.toBe(prevX);
     expect(cloud.y).not.toBe(prevY);
   });
+
+  it('germina semente em broto com 5% de chance ao passar nuvem por cima', () => {
+    const grid = createBaseGrid(10, 10);
+    const engine = new SimulationEngine(grid);
+    engine.season = ClimateSeason.CHUVOSA;
+
+    // Coloca semente na célula (5, 5)
+    const targetCell = engine.grid[5][5];
+    targetCell.state = CellState.SEMENTE;
+    targetCell.age = 0;
+
+    // Posiciona nuvem sobre a célula (5, 5)
+    const cloud = createCloud(1, 5 * 20 + 10, 5 * 20 + 10);
+    cloud.radius = 25;
+    engine.clouds.push(cloud);
+
+    // Executa múltiplos ticks com nuvem sobre a semente para validar germinação estatística (5% de chance por tick)
+    let germinated = false;
+    for (let i = 0; i < 90; i++) {
+      cloud.life = 100; // Mantém nuvem ativa sobre a semente
+      engine.updateCloudsTick();
+      if ((targetCell.state as CellState) === CellState.BROTO) {
+        germinated = true;
+        break;
+      }
+    }
+
+    expect(germinated).toBe(true);
+    expect(engine.grid[5][5].state).toBe(CellState.BROTO);
+    expect(engine.seedsGerminated).toBeGreaterThanOrEqual(1);
+    expect(engine.grid[5][5].cloudMoisture).toBeGreaterThan(0);
+  });
+});
+
+describe('Regras de Fertilidade e Persistência de Estado', () => {
+  it('mantém SOLO_FERTIL por exatamente 20 ciclos sem água antes de dessecar para SOLO_SECO', () => {
+    const grid = createBaseGrid(5, 5);
+    // Sem água no grid
+    const engine = new SimulationEngine(grid, { waterRadius: 1 });
+
+    // Transforma célula (2, 2) em SOLO_FERTIL (como uma nuvem faria) com age 0
+    engine.grid[2][2].state = CellState.SOLO_FERTIL;
+    engine.grid[2][2].age = 0;
+
+    // Ciclos 1 a 19: permanece fértil incrementando a idade
+    for (let c = 1; c <= 19; c++) {
+      engine.step();
+      expect(engine.grid[2][2].state).toBe(CellState.SOLO_FERTIL);
+      expect(engine.grid[2][2].age).toBe(c);
+    }
+
+    // Ciclo 20 (após 20 ciclos férteis completos sem água, desseca)
+    engine.step();
+    expect(engine.grid[2][2].state).toBe(CellState.SOLO_SECO);
+    expect(engine.grid[2][2].age).toBe(0);
+  });
+
+  it('reseta a contagem de dessecação se o solo receber hidratação contínua', () => {
+    const grid = createBaseGrid(5, 5);
+    grid[2][1].state = CellState.LEITO_AGUA; // Água vizinha
+    const engine = new SimulationEngine(grid, { waterRadius: 1 });
+
+    engine.grid[2][2].state = CellState.SOLO_FERTIL;
+    engine.grid[2][2].age = 3;
+
+    // Com água vizinha no raio 1, o solo está hidratado
+    engine.step();
+    expect(engine.grid[2][2].state).toBe(CellState.SOLO_FERTIL);
+    expect(engine.grid[2][2].age).toBe(0);
+  });
+
+  it('ajustes de waterRadius, disperserCount e velocidade não resetam a grade de simulação', () => {
+    const grid = createBaseGrid(10, 10);
+    const engine = new SimulationEngine(grid, { waterRadius: 1 });
+
+    // Altera manualmente uma célula para testar persistência
+    engine.grid[3][3].state = CellState.ARVORE_ADULTA;
+    engine.grid[4][4].state = CellState.SEMENTE;
+
+    // Altera waterRadius
+    engine.setWaterRadius(3);
+    expect(engine.grid[3][3].state).toBe(CellState.ARVORE_ADULTA);
+    expect(engine.grid[4][4].state).toBe(CellState.SEMENTE);
+
+    // Altera disperserCount
+    engine.setDisperserCount(12);
+    expect(engine.dispersers.length).toBe(12);
+    expect(engine.grid[3][3].state).toBe(CellState.ARVORE_ADULTA);
+    expect(engine.grid[4][4].state).toBe(CellState.SEMENTE);
+
+    // Altera speed
+    engine.setSpeed(5);
+    expect(engine.config.framesPerTick).toBe(5);
+    expect(engine.grid[3][3].state).toBe(CellState.ARVORE_ADULTA);
+    expect(engine.grid[4][4].state).toBe(CellState.SEMENTE);
+  });
 });

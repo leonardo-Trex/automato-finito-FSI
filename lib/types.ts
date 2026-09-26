@@ -118,6 +118,10 @@ export interface SimConfig {
   disperserDropProbability: number;
   /** Cadência padrão de frames por tick lógico */
   framesPerTick: number;
+  /** Ciclos que um solo fértil retém fertilidade sem água contínua antes de dessecar (padrão: 20) */
+  fertileSoilRetentionCycles?: number;
+  /** Chance de uma semente germinar ao ser sobrevoada por uma nuvem de chuva (padrão: 0.05 = 5%) */
+  cloudSeedGerminationProbability?: number;
 }
 
 /**
