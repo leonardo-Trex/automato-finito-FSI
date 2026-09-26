@@ -4,6 +4,8 @@ import {
   computeHydrationMap,
   countNeighboringAdultTrees,
   hasActiveWaterNeighbor,
+  countNearbyWaterCells,
+  createCloud,
 } from '../engine';
 import { CellState, ClimateSeason } from '../types';
 import {
@@ -341,5 +343,95 @@ describe('Agentes Dispersores e Ferramentas Interativas', () => {
     expect(PRESETS.dry_soil).toBeDefined();
     expect(PRESETS.dry_soil.name).toBe('Solo Seco Inerte');
     expect(PRESETS.dry_soil.badge).toBe('Árido');
+  });
+});
+
+describe('Nuvens e Precipitação Pluvial', () => {
+  it('identifica corretamente corpos d água densos com >= 4 canais em raio de 1 bloco', () => {
+    const grid = createBaseGrid(5, 5);
+    // Cria 4 células de água em raio de 1 bloco ao redor de (2, 2)
+    grid[2][2].state = CellState.LEITO_AGUA;
+    grid[2][1].state = CellState.LEITO_AGUA;
+    grid[1][2].state = CellState.LEITO_AGUA;
+    grid[3][2].state = CellState.LEITO_AGUA;
+
+    expect(countNearbyWaterCells(grid, { col: 2, row: 2 })).toBe(4);
+    expect(countNearbyWaterCells(grid, { col: 0, row: 0 })).toBe(0);
+  });
+
+  it('permite que nuvens existam exclusivamente na estação CHUVOSA e dissipem na SECA', () => {
+    const engine = new SimulationEngine(createBaseGrid(), { disperserCount: 0 });
+    engine.season = ClimateSeason.CHUVOSA;
+    engine.clouds.push(createCloud(1, 100, 100));
+    expect(engine.clouds.length).toBe(1);
+
+    // Na estação SECA, nuvens devem ser dissipadas
+    engine.season = ClimateSeason.SECA;
+    engine.updateCloudsTick();
+    expect(engine.clouds.length).toBe(0);
+  });
+
+  it('transforma solo inerte em solo fértil ao passar nuvem por cima', () => {
+    const grid = createBaseGrid(10, 10);
+    const engine = new SimulationEngine(grid, { disperserCount: 0 });
+    engine.season = ClimateSeason.CHUVOSA;
+
+    // Coloca nuvem exatamente sobre a célula (5, 5) que é SOLO_SECO
+    const cloud = createCloud(1, 5 * 20 + 10, 5 * 20 + 10);
+    cloud.radius = 25;
+    engine.clouds.push(cloud);
+
+    // Executa múltiplos ticks de chuva para validar a transição estatística (70% de chance)
+    let converted = false;
+    for (let i = 0; i < 15; i++) {
+      cloud.life = 50; // Mantém nuvem viva
+      engine.updateCloudsTick();
+      if (engine.grid[5][5].state === CellState.SOLO_FERTIL) {
+        converted = true;
+        break;
+      }
+    }
+
+    expect(converted).toBe(true);
+    expect(engine.grid[5][5].state).toBe(CellState.SOLO_FERTIL);
+    expect(engine.grid[5][5].cloudMoisture).toBeGreaterThan(0);
+  });
+
+  it('retarda o secamento de canais de água desprotegidos na estação SECA devido à umidade das nuvens', () => {
+    const grid = createBaseGrid(5, 5);
+    grid[2][2].state = CellState.LEITO_AGUA;
+    // Canal desprotegido (0 árvores ao redor)
+    expect(countNeighboringAdultTrees(grid, { col: 2, row: 2 })).toBe(0);
+
+    const engine = new SimulationEngine(grid, {
+      evaporationProbabilityDry: 1.0, // 100% chance de evaporar sem proteção
+      waterRadius: 1,
+    });
+    engine.season = ClimateSeason.SECA;
+
+    // Adiciona reserva de umidade deixada por chuva de nuvens
+    engine.grid[2][2].cloudMoisture = 5;
+
+    // Executa 1 tick na seca
+    engine.step();
+
+    // Devido à umidade da nuvem, o canal NÃO evapora no tick, retardando a seca!
+    expect(engine.grid[2][2].state).toBe(CellState.LEITO_AGUA);
+    expect(engine.grid[2][2].cloudMoisture).toBe(4);
+  });
+
+  it('atualiza movimentação e limites das nuvens de forma suave', () => {
+    const engine = new SimulationEngine(createBaseGrid());
+    engine.season = ClimateSeason.CHUVOSA;
+    const cloud = createCloud(1, 100, 100, 1.0, 0.5);
+    engine.clouds.push(cloud);
+
+    const prevX = cloud.x;
+    const prevY = cloud.y;
+
+    engine.updateCloudsMotion();
+
+    expect(cloud.x).not.toBe(prevX);
+    expect(cloud.y).not.toBe(prevY);
   });
 });

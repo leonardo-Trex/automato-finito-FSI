@@ -52,6 +52,7 @@ export default function Home() {
     currentSeason: ClimateSeason.CHUVOSA,
     seasonProgress: 0,
     totalTicks: 0,
+    cloudCount: 0,
   });
 
   // Inspeção da célula sob o cursor
@@ -276,6 +277,16 @@ export default function Home() {
                     <p className="text-[10px] text-text-muted">Colhe sementes no dossel e semeia o mapa.</p>
                   </div>
                 </div>
+
+                <div className="flex items-center gap-2 p-1.5 rounded-lg bg-surface-panel/60">
+                  <div className="w-3.5 h-3.5 flex items-center justify-center text-sm shrink-0">☁️</div>
+                  <div className="flex-1">
+                    <strong className="text-sky-300">Nuvens (Estação Chuvosa)</strong>
+                    <p className="text-[10px] text-text-muted">
+                      Surgem em corpos d&apos;água (≥4 canais) ou bordas (5%). Umedecem o solo (70% fértil) e retardam o secamento do rio.
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -294,6 +305,9 @@ export default function Home() {
                 </li>
                 <li>
                   <strong className="text-foreground">Regeneração Pluvial:</strong> Na chuva, leitos secos adjacentes à água renascem e se expandem.
+                </li>
+                <li>
+                  <strong className="text-foreground">Precipitação das Nuvens:</strong> Nuvens na estação chuvosa transformam solo inerte em fértil (70%) e sua umidade retarda o secamento dos canais.
                 </li>
               </ul>
             </div>

@@ -213,6 +213,8 @@ export default function SimulationCanvas({
 
         // Movimentação fluida contínua dos dispersores a 60 FPS
         eng.updateDispersersMotion();
+        // Movimentação fluida contínua das nuvens a 60 FPS
+        eng.updateCloudsMotion();
       }
 
       // Sincronização throttled de métricas com o React (~4x por segundo)
@@ -375,7 +377,68 @@ export default function SimulationCanvas({
         }
       }
 
-      // 4. Destaque de Célula sob o Cursor
+      // 4. Renderização das Nuvens de Chuva (Sobrepostas à simulação)
+      for (const cl of eng.clouds) {
+        const r = cl.radius;
+        const x = cl.x;
+        const y = cl.y;
+
+        // Sombra suave de umidade no solo
+        ctx.fillStyle = 'rgba(14, 165, 233, 0.12)';
+        ctx.beginPath();
+        ctx.ellipse(x, y + r * 0.7, r * 1.1, r * 0.45, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Gotas de chuva caindo abaixo da nuvem
+        ctx.strokeStyle = 'rgba(56, 189, 248, 0.7)';
+        ctx.lineWidth = 1.5;
+        const dropSpacing = r * 0.42;
+        for (let i = -1; i <= 1; i++) {
+          const dropX = x + i * dropSpacing;
+          const dropOffset = (visualFrameCount * 1.8 + cl.id * 11 + (i + 1) * 7) % 20;
+          ctx.beginPath();
+          ctx.moveTo(dropX, y + r * 0.35 + dropOffset);
+          ctx.lineTo(dropX - 0.5, y + r * 0.35 + dropOffset + 4.5);
+          ctx.stroke();
+        }
+
+        // Halo atmosférico azul claro
+        ctx.fillStyle = 'rgba(186, 230, 253, 0.22)';
+        ctx.beginPath();
+        ctx.arc(x, y, r * 1.15, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Corpo fofo e volumoso da nuvem (círculos sobrepostos)
+        ctx.fillStyle = 'rgba(240, 249, 255, 0.88)';
+
+        // Puf central superior
+        ctx.beginPath();
+        ctx.arc(x, y - r * 0.15, r * 0.55, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Puf lateral esquerdo
+        ctx.beginPath();
+        ctx.arc(x - r * 0.4, y + r * 0.05, r * 0.42, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Puf lateral direito
+        ctx.beginPath();
+        ctx.arc(x + r * 0.4, y + r * 0.05, r * 0.45, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Puf base alargada
+        ctx.beginPath();
+        ctx.ellipse(x, y + r * 0.15, r * 0.65, r * 0.35, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Destaque branco superior (iluminação solar)
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+        ctx.beginPath();
+        ctx.arc(x - r * 0.12, y - r * 0.26, r * 0.32, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // 5. Destaque de Célula sob o Cursor
       const hover = hoverCoordRef.current;
       if (hover && isCoordValid(hover, cols, rows)) {
         const hx = hover.col * CELL_SIZE;

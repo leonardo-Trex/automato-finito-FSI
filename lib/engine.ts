@@ -17,6 +17,7 @@ import {
   CellState,
   ClimateSeason,
   Disperser,
+  Cloud,
   Grid,
   GridCoord,
   SimConfig,
@@ -134,6 +135,52 @@ export function hasActiveWaterNeighbor(grid: Grid, coord: GridCoord): boolean {
 }
 
 /**
+ * Conta quantos canais de água ativos existem na vizinhança Chebyshev de raio 1
+ * (bloco central + até 8 vizinhos de Moore).
+ */
+export function countNearbyWaterCells(grid: Grid, coord: GridCoord): number {
+  const rows = grid.length;
+  const cols = grid[0]?.length ?? 0;
+  let count = 0;
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      const r = coord.row + dr;
+      const c = coord.col + dc;
+      if (r >= 0 && r < rows && c >= 0 && c < cols) {
+        if (grid[r][c].state === CellState.LEITO_AGUA) {
+          count++;
+        }
+      }
+    }
+  }
+  return count;
+}
+
+/**
+ * Cria uma nova nuvem de chuva com parâmetros de movimento e tamanho.
+ */
+export function createCloud(
+  id: number,
+  x: number,
+  y: number,
+  vx?: number,
+  vy?: number,
+): Cloud {
+  const angle = Math.random() * Math.PI * 2;
+  const speed = 0.4 + Math.random() * 0.5;
+  return {
+    id,
+    x,
+    y,
+    vx: vx ?? Math.cos(angle) * speed,
+    vy: vy ?? Math.sin(angle) * speed,
+    radius: 22 + Math.random() * 8, // Raio entre 22px e 30px
+    life: 75 + Math.floor(Math.random() * 45), // Duração em ticks
+    opacity: 0.85,
+  };
+}
+
+/**
  * Classe principal do Motor de Simulação Ecológica da Bacia Hidrográfica.
  */
 export class SimulationEngine {
@@ -144,6 +191,8 @@ export class SimulationEngine {
   public seasonTickCounter: number;
   public totalTicks: number;
   public dispersers: Disperser[];
+  public clouds: Cloud[];
+  private nextCloudId: number;
   public running: boolean;
 
   // Contadores cumulativos de métricas
@@ -160,6 +209,8 @@ export class SimulationEngine {
     this.totalTicks = 0;
     this.running = true;
     this.dispersers = createDispersers(this.config.disperserCount);
+    this.clouds = [];
+    this.nextCloudId = 1;
 
     this.totalSeedsDropped = 0;
     this.seedsGerminated = 0;
@@ -194,6 +245,7 @@ export class SimulationEngine {
     this.nextGrid = cloneGrid(newGrid);
     this.season = initialSeason;
     this.seasonTickCounter = 0;
+    this.clouds = [];
     this.synchronizeInitialSoil();
   }
 
@@ -241,6 +293,7 @@ export class SimulationEngine {
     this.seasonTickCounter = 0;
     this.totalTicks = 0;
     this.dispersers = createDispersers(this.config.disperserCount);
+    this.clouds = [];
     this.totalSeedsDropped = 0;
     this.seedsGerminated = 0;
     this.seedsLost = 0;
@@ -288,6 +341,12 @@ export class SimulationEngine {
         const coord: GridCoord = { col: c, row: r };
         const hydrated = isHydrated[r][c];
 
+        // Decrementa reserva de umidade deixada por chuva de nuvens
+        next.cloudMoisture =
+          current.cloudMoisture && current.cloudMoisture > 0
+            ? current.cloudMoisture - 1
+            : 0;
+
         switch (current.state) {
           // --- LEITO DE ÁGUA ATIVO ---
           case CellState.LEITO_AGUA: {
@@ -298,8 +357,12 @@ export class SimulationEngine {
                 // Leito protegido por copa densa (evaporação = 0%)
                 next.state = CellState.LEITO_AGUA;
                 next.age = current.age + 1;
+              } else if (current.cloudMoisture && current.cloudMoisture > 0) {
+                // Água vinda das nuvens retarda o secamento dos canais!
+                next.state = CellState.LEITO_AGUA;
+                next.age = current.age + 1;
               } else {
-                // Desprotegido: alta chance de evaporação e assoreamento
+                // Desprotegido e sem umidade residual: alta chance de evaporação e assoreamento
                 if (Math.random() < this.config.evaporationProbabilityDry) {
                   next.state = CellState.LEITO_SECO;
                   next.age = 0;
@@ -434,11 +497,15 @@ export class SimulationEngine {
       for (let c = 0; c < cols; c++) {
         this.grid[r][c].state = this.nextGrid[r][c].state;
         this.grid[r][c].age = this.nextGrid[r][c].age;
+        this.grid[r][c].cloudMoisture = this.nextGrid[r][c].cloudMoisture;
       }
     }
 
     // 6. Atualização dos agentes dispersores em ticks
     this.updateDispersersTick();
+
+    // 7. Atualização das nuvens na estação chuvosa em ticks
+    this.updateCloudsTick();
   }
 
   /**
@@ -546,6 +613,153 @@ export class SimulationEngine {
           }
         }
       }
+    }
+  }
+
+  /**
+   * Atualização de ciclo de vida, surgimento e precipitação das nuvens (executado a cada tick lógico).
+   *
+   * Regras implementadas:
+   * 1. Nuvens aparecem exclusivamente na estação CHUVOSA.
+   * 2. Surgem por condensação quando há >= 4 canais de água em raio de 1 bloco.
+   * 3. Podem surgir aleatoriamente das bordas em pequenas quantidades (5% de chance).
+   * 4. Deslocam-se aleatoriamente e, ao passarem sobre solo inerte (SOLO_SECO), este tem 70% de chance de virar SOLO_FERTIL.
+   * 5. A água das nuvens adiciona reserva de umidade que retarda o secamento dos canais de água.
+   */
+  public updateCloudsTick(): void {
+    // 1. As nuvens irão aparecer apenas na época chuvosa
+    if (this.season === ClimateSeason.SECA) {
+      this.clouds = [];
+      return;
+    }
+
+    const rows = this.grid.length;
+    const cols = this.grid[0]?.length ?? 0;
+    const MAX_CLOUDS = 8;
+
+    // 2. Condensação sobre corpos d'água densos (>= 4 canais em raio de 1 bloco)
+    if (this.clouds.length < MAX_CLOUDS) {
+      const waterClusters: GridCoord[] = [];
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          if (countNearbyWaterCells(this.grid, { col: c, row: r }) >= 4) {
+            waterClusters.push({ col: c, row: r });
+          }
+        }
+      }
+
+      if (waterClusters.length > 0 && Math.random() < 0.25) {
+        const cluster = waterClusters[Math.floor(Math.random() * waterClusters.length)];
+        const cx = cluster.col * CELL_SIZE + CELL_SIZE / 2;
+        const cy = cluster.row * CELL_SIZE + CELL_SIZE / 2;
+        this.clouds.push(createCloud(this.nextCloudId++, cx, cy));
+      }
+    }
+
+    // 3. Nuvens vindas das bordas da simulação (5% de chance)
+    if (Math.random() < 0.05 && this.clouds.length < MAX_CLOUDS) {
+      const edge = Math.floor(Math.random() * 4);
+      let bx = 0;
+      let by = 0;
+      let bvx = 0;
+      let bvy = 0;
+
+      switch (edge) {
+        case 0: // Borda Superior
+          bx = Math.random() * CANVAS_WIDTH;
+          by = -15;
+          bvx = (Math.random() - 0.5) * 0.6;
+          bvy = 0.4 + Math.random() * 0.5;
+          break;
+        case 1: // Borda Inferior
+          bx = Math.random() * CANVAS_WIDTH;
+          by = CANVAS_HEIGHT + 15;
+          bvx = (Math.random() - 0.5) * 0.6;
+          bvy = -(0.4 + Math.random() * 0.5);
+          break;
+        case 2: // Borda Esquerda
+          bx = -15;
+          by = Math.random() * CANVAS_HEIGHT;
+          bvx = 0.4 + Math.random() * 0.5;
+          bvy = (Math.random() - 0.5) * 0.6;
+          break;
+        case 3: // Borda Direita
+          bx = CANVAS_WIDTH + 15;
+          by = Math.random() * CANVAS_HEIGHT;
+          bvx = -(0.4 + Math.random() * 0.5);
+          bvy = (Math.random() - 0.5) * 0.6;
+          break;
+      }
+      this.clouds.push(createCloud(this.nextCloudId++, bx, by, bvx, bvy));
+    }
+
+    // 4. Precipitação e interação com o solo:
+    // Solo inerte: 70% de chance de virar solo fértil
+    // Leito de água: recebe reserva de umidade que retarda o secamento
+    for (const cloud of this.clouds) {
+      const minCol = Math.max(0, Math.floor((cloud.x - cloud.radius) / CELL_SIZE));
+      const maxCol = Math.min(cols - 1, Math.floor((cloud.x + cloud.radius) / CELL_SIZE));
+      const minRow = Math.max(0, Math.floor((cloud.y - cloud.radius) / CELL_SIZE));
+      const maxRow = Math.min(rows - 1, Math.floor((cloud.y + cloud.radius) / CELL_SIZE));
+
+      for (let r = minRow; r <= maxRow; r++) {
+        for (let c = minCol; c <= maxCol; c++) {
+          const cellX = c * CELL_SIZE + CELL_SIZE / 2;
+          const cellY = r * CELL_SIZE + CELL_SIZE / 2;
+          const dist = Math.hypot(cellX - cloud.x, cellY - cloud.y);
+
+          if (dist <= cloud.radius) {
+            const cell = this.grid[r][c];
+
+            // 70% de chance de solo inerte virar fértil
+            if (cell.state === CellState.SOLO_SECO) {
+              if (Math.random() < 0.70) {
+                cell.state = CellState.SOLO_FERTIL;
+                cell.age = 0;
+                cell.cloudMoisture = 25;
+              }
+            } else if (cell.state === CellState.LEITO_AGUA) {
+              // Retarda o secamento do leito de água
+              cell.cloudMoisture = 30;
+            }
+          }
+        }
+      }
+
+      cloud.life--;
+    }
+
+    // Remove nuvens cujo tempo de vida terminou
+    this.clouds = this.clouds.filter((c) => c.life > 0);
+  }
+
+  /**
+   * Movimentação contínua das nuvens (~60 FPS) sobre a simulação com caminhada aleatória.
+   */
+  public updateCloudsMotion(): void {
+    if (!this.running || this.season === ClimateSeason.SECA) return;
+
+    for (const cloud of this.clouds) {
+      // Pequeno viés estocástico (andar aleatório suave)
+      cloud.vx += (Math.random() - 0.5) * 0.06;
+      cloud.vy += (Math.random() - 0.5) * 0.06;
+
+      const speed = Math.hypot(cloud.vx, cloud.vy) || 1;
+      const maxSpeed = 0.85;
+      if (speed > maxSpeed) {
+        cloud.vx = (cloud.vx / speed) * maxSpeed;
+        cloud.vy = (cloud.vy / speed) * maxSpeed;
+      }
+
+      cloud.x += cloud.vx;
+      cloud.y += cloud.vy;
+
+      // Wrap-around suave nas bordas
+      const margin = cloud.radius + 20;
+      if (cloud.x < -margin) cloud.x = CANVAS_WIDTH + margin;
+      if (cloud.x > CANVAS_WIDTH + margin) cloud.x = -margin;
+      if (cloud.y < -margin) cloud.y = CANVAS_HEIGHT + margin;
+      if (cloud.y > CANVAS_HEIGHT + margin) cloud.y = -margin;
     }
   }
 
@@ -689,6 +903,7 @@ export class SimulationEngine {
       seasonProgress,
       totalTicks: this.totalTicks,
       disperserCount: this.dispersers.length,
+      cloudCount: this.clouds.length,
     };
   }
 }
